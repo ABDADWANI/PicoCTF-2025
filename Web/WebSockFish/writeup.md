@@ -1,4 +1,4 @@
-# **Write-Up: WebSockFish - PicoCTF 2024**
+# **Write-Up: WebSockFish - PicoCTF 2025**
 
 ## **Challenge Overview**
 
