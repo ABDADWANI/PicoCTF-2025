@@ -1,145 +1,134 @@
-# **Writeup: WebSockFish - PicoCTF 2024**
+# **Write-Up: WebSockFish - PicoCTF 2024**
+
+## **Challenge Overview**
+
+- **Challenge Name:** WebSockFish  
+- **Category:** Web Exploitation (Client-Side WebSockets)  
+- **Difficulty:** Medium to Hard  
+- **Description:**  
+
+The challenge presents a web-based chess game where the player competes against the **Stockfish chess engine**. Given Stockfish's strength as a chess engine, winning fairly is nearly impossible. Our objective is to analyze the game's mechanics and find a way to manipulate the system to force a victory.
 
 ---
 
-### **📌 Challenge Information**
+## **Step 1: Initial Analysis and Reconnaissance**
 
-- **Challenge Name:** WebSockFish
-- **Category:** Web Exploitation (Client-Side WebSockets)
-- **Difficulty:** Medium to Hard
-- **Description:**
-The goal is to **win a chess game against the Stockfish engine** via a web-based interface. However, Stockfish is a very strong engine, making a fair win nearly impossible. We need to find a way to manipulate the game mechanics to achieve victory.
+Upon accessing the challenge URL, we are presented with an **interactive chessboard** and a chat feature where a fish icon provides commentary. The chess engine appears to process the moves and respond accordingly.
 
----
+### **Key Observations:**
+1. The game interface allows us to make moves against Stockfish.
+2. The chess engine provides **position evaluations** through an interactive chat.
+3. The game uses **WebSockets (`ws://`)** to communicate move data and evaluation scores.
 
-## **🔍 1. Analyzing the Challenge (Reconnaissance)**
+### **Examining the JavaScript Code**
 
-When accessing the challenge page **(http://verbal-sleep.picoctf.net:54668/)**, we see a chessboard along with a chat message from a fish icon that says:
+By inspecting the browser’s **Developer Tools (DevTools)** and analyzing the **JavaScript source code**, we identified the following important details:
 
-> "I’m just a fish, but I know a thing or two about chess."
-> 
+#### **1. WebSocket Communication**
+```javascript
+var ws_address = "ws://" + location.hostname + ":" + location.port + "/ws/";
+const ws = new WebSocket(ws_address);
+```
+- The game establishes a **WebSocket connection** to exchange data between the client and server.
 
-### **📌 Observations**
+#### **2. Receiving Messages from the Server**
+```javascript
+ws.onmessage = (event) => {
+    const message = event.data;
+    updateChat(message);
+};
+```
+- The game receives data from the server and updates the chat interface with the received messages.
 
-1. The page contains an **interactive chessboard** where we can move pieces.
-2. The **fish provides responses** during the game, indicating some sort of interactivity.
-3. **WebSockets are being used** (`ws://`), which we can confirm from the page's JavaScript source code.
+#### **3. Interaction with the Stockfish Chess Engine**
+```javascript
+var stockfish = new Worker("js/stockfish.min.js");
+stockfish.postMessage("uci");
+```
+- The game uses **Stockfish** (a strong chess engine) to analyze moves.
+- The `postMessage` function sends commands to Stockfish.
 
-### **📌 Looking into the Source Code**
-
-By inspecting the page source (`View Page Source`) and checking the **DevTools Console**, we found some important clues:
-
-### **🔹 Key JavaScript Code (Understanding the Mechanics)**
-
-1. **A WebSocket connection is established:**
-    
-    ```jsx
-    var ws_address = "ws://" + location.hostname + ":" + location.port + "/ws/";
-    const ws = new WebSocket(ws_address);
-    
-    ```
-    
-2. **WebSocket messages are sent and received:**
-    
-    ```jsx
-    ws.onmessage = (event) => {
-        const message = event.data;
-        updateChat(message);
-    };
-    
-    ```
-    
-3. **Stockfish Chess Engine is used:**
-    
-    ```jsx
-    var stockfish = new Worker("js/stockfish.min.js");
-    stockfish.postMessage("uci");
-    
-    ```
-    
-4. **Stockfish sends evaluation scores (`eval`) to determine the game position:**
-    
-    ```jsx
-    stockfish.onmessage = function (event) {
-        if (event.data.startsWith(`info depth ${DEPTH}`)) {
-            var splitString = event.data.split(" ");
-            if (event.data.includes("mate")) {
-                message = "mate " + parseInt(splitString[9]);
-            } else {
-                message = "eval " + parseInt(splitString[9]);
-            }
-            sendMessage(message);
+#### **4. Evaluating Positions**
+```javascript
+stockfish.onmessage = function (event) {
+    if (event.data.startsWith(`info depth ${DEPTH}`)) {
+        var splitString = event.data.split(" ");
+        if (event.data.includes("mate")) {
+            message = "mate " + parseInt(splitString[9]);
+        } else {
+            message = "eval " + parseInt(splitString[9]);
         }
-    };
-    
-    ```
-    
-
-### **📌 Key Findings**
-
-- **Stockfish calculates position evaluations (`eval`) and sends them to the WebSocket.**
-- `"mate X"` means checkmate in `X` moves.
-- `"eval N"` represents the position score:
-    - **Positive values (`+N`)**: White (us) is winning.
-    - **Negative values (`N`)**: Black (Stockfish) is winning.
-    - **Extremely high or low values mean a decisive win/loss.**
-
-### **📌 Potential Vulnerability**
-
-- **Stockfish sends `eval` values to the WebSocket without validation.**
-- If we **manipulate these values**, we might trick the system into thinking we've won.
-- There is **no verification** of whether `eval` values are generated by Stockfish.
+        sendMessage(message);
+    }
+};
+```
+- Stockfish calculates an **evaluation (`eval`) score** for each position:
+  - **Positive values (`+N`)**: Favorable for White.
+  - **Negative values (`-N`)**: Favorable for Black.
+  - **Extreme values indicate a decisive win/loss.**
+- If Stockfish finds a **forced checkmate**, it sends `"mate X"`, indicating checkmate in `X` moves.
 
 ---
 
-## **🚀 2. Exploiting the Vulnerability**
+## **Step 2: Identifying a Potential Exploit**
 
-### **📌 First Attempt: Sending `mate 1`**
+### **Key Observations from the Code**
+- Stockfish **sends position evaluations** as **plain messages** via WebSockets.
+- There is **no verification** ensuring that the messages originate from Stockfish.
+- If we can **manipulate these messages**, we might be able to force a victory.
 
-We tried:
+---
 
-```jsx
-ws.send("mate 1");
-```
+## **Step 3: Exploiting the WebSocket Communication**
 
-But nothing significant happened.
+### **Initial Attempts**
+1. **Testing a Checkmate Message:**
+   ```javascript
+   ws.send("mate 1");
+   ```
+   - No immediate effect on the game.
 
-### **📌 Second Attempt: Sending a Large Positive Evaluation**
+2. **Sending a High Positive Evaluation:**
+   ```javascript
+   ws.send("eval 99999");
+   ```
+   - Response from the game:  
+     > *"You're in deep water now!"*  
+   - This suggests that **high values trigger a reaction but do not force a win**.
 
-We tested:
+3. **Sending a High Negative Evaluation:**
+   ```javascript
+   ws.send("eval -5000");
+   ```
+   - Response from the game:  
+     > *"Wow, you're quite the chess shark!"*  
+   - This implies that **negative values indicate the engine is losing**.
 
-```jsx
-ws.send("eval 99999");
-```
+### **The Breakthrough**
+Since **negative evaluation values** represent **Stockfish losing**, we hypothesized that sending an extreme negative value might cause the engine to resign.
 
-The response from the fish:
-
-> "You're in deep water now!"
-> 
-
-This suggests that **large values trigger a response but don't win the game**.
-
-### **📌 Third Attempt: Sending a Large Negative Evaluation**
-
-Since negative `eval` values indicate **Stockfish is losing**, we tried:
-
-```jsx
-ws.send("eval -5000");
-```
-
-Response from the fish:
-
-> "Wow you're quite the chess shark!"
-> 
-
-### **📌 Final Breakthrough: Sending an Extreme Negative Evaluation**
-
-Since **negative values suggest that Stockfish is in a bad position**, we tested:
-
-```jsx
+```javascript
 ws.send("eval -100000");
 ```
 
-And **BOOM! The fish resigned and revealed the flag:**
+**Game Response:**
+> *"Huh???? How can I be losing this badly... I resign... here's your flag: picoCTF{c1i3nt_s1d3_w3b_s0ck3t5_50441bef}"*
 
-> "Huh???? How can I be losing this badly... I resign... here's your flag: picoCTF{c1i3nt_s1d3_w3b_s0ck3t5_50441bef}" 🎉
+This confirmed that **Stockfish resigned due to the extreme negative evaluation, awarding us the victory**.
+
+---
+
+## **Step 4: Understanding Why This Exploit Works**
+
+1. **Stockfish Determines Position Evaluations**  
+   - The game listens for `eval` values from Stockfish and updates the game state accordingly.
+
+2. **No Verification of WebSocket Messages**  
+   - The server blindly accepts `eval` values sent via WebSocket.
+   - This allows an attacker to **send arbitrary evaluation scores**, manipulating Stockfish’s decision-making.
+
+3. **Extreme Negative Values Indicate a Lost Game**  
+   - In chess engines, **a very negative score means the engine is completely lost**.
+   - By sending `"eval -100000"`, we **tricked the engine into thinking it had lost**, forcing it to resign.
+
+---
