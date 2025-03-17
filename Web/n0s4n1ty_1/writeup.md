@@ -1,4 +1,4 @@
-# **Write-Up: n0s4n1ty 1 (PicoCTF 2024)**  
+# **Write-Up: n0s4n1ty 1 (PicoCTF 2025)**  
 
 ## **Challenge Overview**  
 
